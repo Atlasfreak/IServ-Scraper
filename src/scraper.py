@@ -109,26 +109,17 @@ class Scraper:
     def convert_list_to_str(self, list: list):
         return "".join(map(str, list)).strip().strip("\n")
 
-    async def __parse_exercise_page(self, link: str):
-        exercise_page = await self.client.get(link)
-        soup_exercise_page = BeautifulSoup(
-            exercise_page.text, "html.parser", parse_only=self.ONLY_MAIN_CONTENT
-        )
-        exercise_creator = (
-            soup_exercise_page.find("th", string="Erstellt von:")
-            .find_next_sibling("td")
-            .contents[0]
-            .string
-        )
-        exercise_description = self.convert_list_to_str(
-            soup_exercise_page.find("div", string="Beschreibung:")
-            .find_next_sibling("div")
-            .contents
-        )
+    async def extract_feedback(self, soup_page: BeautifulSoup):
+        """
+        extract_feedback extracts the feedback from an exercise page
 
-        # Get feedback data
+        Args:
+            soup_page (BeautifulSoup): parsed exercise page
 
-        feedback = soup_exercise_page.find("div", string="Rückmeldungen")
+        Returns:
+            dict: extracted data
+        """
+        feedback = soup_page.find("div", string="Rückmeldungen")
         feedback_files = []
         if feedback:
             feedback_text_title = feedback.find_next("td", string="Rückmeldungstext")
@@ -156,9 +147,24 @@ class Scraper:
         else:
             feedback_text = "Keine Rückmeldung"
 
-        # Get submission data
+        data = {
+            "Rückmeldungstext": feedback_text,
+            "Rückmeldungsdateien": feedback_files,
+        }
 
-        submission_text_parent = soup_exercise_page.find(
+        return data
+
+    async def extract_submission(self, soup_page: BeautifulSoup):
+        """
+        extract_submission extracts the submission data from an exercise
+
+        Args:
+            soup_page (BeautifulSoup): parsed exercise page
+
+        Returns:
+            dict: extracted data
+        """
+        submission_text_parent = soup_page.find(
             "form", attrs={"name": "submission"}
         ).find("h5", string="Deine Textabgabe")
         if submission_text_parent:
@@ -170,9 +176,7 @@ class Scraper:
         else:
             submission_text = "Kein Text abgegeben"
 
-        submission_files_parent = soup_exercise_page.find(
-            "div", class_="panel-body pb-0"
-        )
+        submission_files_parent = soup_page.find("div", class_="panel-body pb-0")
         if submission_files_parent:
             if submission_files_parent.find("h5", string="Ihre abgegebenen Dateien"):
                 submission_files = list(
@@ -187,16 +191,73 @@ class Scraper:
             submission_files = []
 
         data = {
-            "Lehrer": exercise_creator,
-            "Beschreibung": exercise_description,
             "Abgabetext": submission_text,
             "Abgabedateien": submission_files,
-            "Rückmeldungstext": feedback_text,
-            "Rückmeldungsdateien": feedback_files,
         }
         return data
 
+    async def extract_main_info(self, soup_page: BeautifulSoup):
+        """
+        extract_main_info extracts the main information from an exercise
+
+        Args:
+            soup_page (BeautifulSoup): parsed exercise page
+
+        Returns:
+            dict: extracted data
+        """
+        exercise_creator = (
+            soup_page.find("th", string="Erstellt von:")
+            .find_next_sibling("td")
+            .contents[0]
+            .string
+        )
+        exercise_description = self.convert_list_to_str(
+            soup_page.find("div", string="Beschreibung:")
+            .find_next_sibling("div")
+            .contents
+        )
+        data = {
+            "Lehrer": exercise_creator,
+            "Beschreibung": exercise_description,
+        }
+        return data
+
+    async def __parse_exercise_page(self, link: str):
+        """
+        __parse_exercise_page parse an exercise page to extract additional information
+
+        Args:
+            link (str): link to the exercise page
+
+        Returns:
+            dict: extracted data
+        """
+        exercise_page = await self.client.get(link)
+        soup_exercise_page = BeautifulSoup(
+            exercise_page.text, "html.parser", parse_only=self.ONLY_MAIN_CONTENT
+        )
+
+        data = await self.extract_main_info(soup_exercise_page)
+
+        # Get feedback data
+        feedback_data = await self.extract_feedback(soup_exercise_page)
+
+        # Get submission data
+        submission_data = await self.extract_submission(soup_exercise_page)
+
+        return {**data, **submission_data, **feedback_data}
+
     async def get_exercise_data(self, tag: Tag) -> dict:
+        """
+        get_exercise_data extracts all data for a specific exercise
+
+        Args:
+            tag (Tag): The a tag for a specific exercise from the exercise overview
+
+        Returns:
+            dict: all gathered data
+        """
         link = tag["href"]
         parse_task = asyncio.create_task(self.__parse_exercise_page(link))
         exercise_name = tag.string
@@ -217,6 +278,9 @@ class Scraper:
         return exercise_data
 
     async def run(self):
+        """
+        Run the scraper and return the data.
+        """
         await self.change_language()
         page_exercises = await self.client.get("/iserv/exercise?filter[status]=all")
         soup_page_exercises = BeautifulSoup(
@@ -228,6 +292,9 @@ class Scraper:
         return data
 
     async def close(self):
+        """
+        Close connection and revert any setting changes.
+        """
         await self.reset_language()
         await self.client.aclose()
 
