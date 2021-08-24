@@ -1,42 +1,249 @@
 # %%
-import requests
+import asyncio
+from asyncio.tasks import create_task
+import getpass
+from datetime import datetime
+
+import httpx
 from bs4 import BeautifulSoup
-from bs4.element import Tag
+from bs4.element import SoupStrainer, Tag
+
+import utils
+
+# %%
+class Scraper:
+    ONLY_TABLE = SoupStrainer("table")
+    ONLY_MAIN_CONTENT = SoupStrainer("div", {"class": "page-content inset"})
+    ONLY_SETTINGS = SoupStrainer("form", attrs={"name": "user_settings"})
+
+    original_settings = {}
+
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls)
+        self._args = args
+        self._kwargs = kwargs
+        return self
+
+    def __await__(self):
+        yield from self._scraper_init(*self._args, **self._kwargs).__await__()
+        return self
+
+    async def _scraper_init(
+        self,
+        client: httpx.AsyncClient = None,
+        url: str = None,
+        username: str = None,
+        password: str = None,
+    ) -> None:
+        self.url = url if url is not None else "https://whg-duew.de"
+        self.client = (
+            client
+            if client is not None
+            else httpx.AsyncClient(
+                base_url=self.url, headers={"user-agent": "IServ-exercise-scraper/1.0"}
+            )
+        )
+        logged_in = False
+        while not logged_in:
+            self.username = username if username is not None else input("Username: ")
+            self.password = password if password is not None else getpass.getpass()
+            logged_in = await self.login()
+            if not logged_in:
+                print("Passwort oder Benutzername flasch.")
+        print("Erfolgreich eingeloggt!")
+
+    async def login(self) -> bool:
+        """
+        Log the user in.
+        Returns:
+            True if login succesful
+            False if login failed
+        Raises ConnectionError when some error occured
+        """
+        login_path = "/iserv/app/login"
+        login_info = {"_username": self.username, "_password": self.password}
+        page_login = await self.client.post(login_path, data=login_info)
+        if page_login.url.path.startswith(login_path):
+            return False
+        elif page_login.status_code != 200 and page_login.status_code != 302:
+            await self.close()
+            raise ConnectionError("Could not connect to server.")
+        else:
+            return True
+
+    def href_filter(self, href: str):
+        return href.startswith(self.url + "/iserv/exercise/show/")
+
+    def tag_filter(self, tag: Tag) -> bool:
+        return (
+            tag.name == "a"
+            and self.href_filter(tag["href"])
+            and "AG 3D-Druck" not in tag.string
+        )
+
+    async def change_language(self):
+        """
+        Change language of user to german to guarantee correct parsing.
+        """
+        settings_page = await self.client.get("/iserv/profile/settings")
+        soup_settings_page = BeautifulSoup(
+            settings_page.text, "html.parser", parse_only=self.ONLY_SETTINGS
+        )
+        data = {
+            e["name"]: e.get("value", "")
+            for e in soup_settings_page.find_all("input", {"name": True})
+        }
+        data.update(
+            {
+                e["name"]: e.find("option", selected=True).get("value", "")
+                for e in soup_settings_page.find_all("select", {"name": True})
+            }
+        )
+        self.original_settings = data.copy()
+        data["user_settings[lang]"] = "de_DE"
+        await self.client.post("/iserv/profile/settings", data=data)
+
+    async def reset_language(self):
+        await self.client.post("/iserv/profile/settings", data=self.original_settings)
+
+    def convert_list_to_str(self, list: list):
+        return "".join(map(str, list)).strip().strip("\n")
+
+    async def __parse_exercise_page(self, link: str):
+        exercise_page = await self.client.get(link)
+        soup_exercise_page = BeautifulSoup(
+            exercise_page.text, "html.parser", parse_only=self.ONLY_MAIN_CONTENT
+        )
+        exercise_creator = (
+            soup_exercise_page.find("th", string="Erstellt von:")
+            .find_next_sibling("td")
+            .contents[0]
+            .string
+        )
+        exercise_description = self.convert_list_to_str(
+            soup_exercise_page.find("div", string="Beschreibung:")
+            .find_next_sibling("div")
+            .contents
+        )
+
+        # Get feedback data
+
+        feedback = soup_exercise_page.find("div", string="Rückmeldungen")
+        feedback_files = []
+        if feedback:
+            feedback_text_title = feedback.find_next("td", string="Rückmeldungstext")
+            if feedback_text_title:
+                feedback_text = self.convert_list_to_str(
+                    feedback_text_title.parent.find_next(
+                        "div", class_="text-break-word"
+                    ).contents
+                )
+            else:
+                feedback_text = "Kein Rückmeldungstext"
+
+            feedback_files_title = feedback.find_next(
+                "td", string="Rückmeldungs Dateien"
+            )
+            if feedback_files_title:
+                feedback_files = list(
+                    map(
+                        lambda tag: tag["href"],
+                        feedback_files_title.parent.parent.find_all(
+                            "a", attrs={"target": "_blank", "class": "text-break-word"}
+                        ),
+                    )
+                )
+        else:
+            feedback_text = "Keine Rückmeldung"
+
+        # Get submission data
+
+        submission_text_parent = soup_exercise_page.find(
+            "form", attrs={"name": "submission"}
+        ).find("h5", string="Deine Textabgabe")
+        if submission_text_parent:
+            submission_text = self.convert_list_to_str(
+                submission_text_parent.find_next_sibling(
+                    "div", class_="text-break-word"
+                ).contents
+            )
+        else:
+            submission_text = "Kein Text abgegeben"
+
+        submission_files_parent = soup_exercise_page.find(
+            "div", class_="panel-body pb-0"
+        )
+        if submission_files_parent:
+            if submission_files_parent.find("h5", string="Ihre abgegebenen Dateien"):
+                submission_files = list(
+                    map(
+                        lambda tag: tag["href"],
+                        submission_files_parent.find_all(
+                            "a", attrs={"target": "_blank"}
+                        ),
+                    )
+                )
+        else:
+            submission_files = []
+
+        data = {
+            "Lehrer": exercise_creator,
+            "Beschreibung": exercise_description,
+            "Abgabetext": submission_text,
+            "Abgabedateien": submission_files,
+            "Rückmeldungstext": feedback_text,
+            "Rückmeldungsdateien": feedback_files,
+        }
+        return data
+
+    async def get_exercise_data(self, tag: Tag) -> dict:
+        link = tag["href"]
+        parse_task = asyncio.create_task(self.__parse_exercise_page(link))
+        exercise_name = tag.string
+        exercise_info = list(tag.parent.next_siblings)
+        start_date = datetime.strptime(exercise_info[0]["data-sort"], "%Y%m%d")
+        end_date = datetime.strptime(exercise_info[1]["data-sort"], "%Y%m%d%H%M%S")
+        exercise_tags = exercise_info[2].string
+        exercise_data = {
+            "Aufgabe": exercise_name,
+            "Startdatum": start_date.strftime("%d.%m.%Y %H:%M"),
+            "Enddatum": end_date.strftime("%d.%m.%Y %H:%M"),
+            "Link": link,
+            "Tags": exercise_tags,
+        }
+
+        parsed_data = await parse_task
+        exercise_data.update(parsed_data)
+        return exercise_data
+
+    async def run(self):
+        await self.change_language()
+        page_exercises = await self.client.get("/iserv/exercise?filter[status]=all")
+        soup_page_exercises = BeautifulSoup(
+            page_exercises.text, "html.parser", parse_only=self.ONLY_TABLE
+        )
+        filtered_exercises = soup_page_exercises.find_all(self.tag_filter)
+        tasks = [self.get_exercise_data(exercise) for exercise in filtered_exercises]
+        data = await asyncio.gather(*tasks)
+        return data
+
+    async def close(self):
+        await self.reset_language()
+        await self.client.aclose()
 
 
 # %%
-def href_filter(href: str):
-    return href.startswith(url + "/iserv/exercise/show/")
-
-
-def tag_filter(tag: Tag):
-    return (
-        tag.name == "a" and href_filter(tag["href"]) and "AG 3D-Druck" not in tag.string
-    )
-
-
-#%%
-client = requests.Session()
-username = input("Username: ")
-password = input("Password: ")
-url = "https://whg-duew.de"
-
-# %%
-login_url = url + "/iserv/app/login"
-login_info = {"_username": username, "_password": password}
-page_login = client.post(login_url, data=login_info)
-if page_login.url.startswith(login_url):
-    print("Something went wrong.")
-    raise Exception
-else:
-    print("Logged in")
-
-# %%
-page_exercise = client.get(url + "/iserv/exercise?filter[status]=all")
+async def main():
+    scraper = await Scraper()
+    try:
+        data = await scraper.run()
+        with open("data.csv", "w", encoding="utf-8", newline="") as f:
+            utils.create_csv(f, data)
+    finally:
+        await scraper.close()
 
 
 # %%
-soup_page_exercise = BeautifulSoup(page_exercise.text, "html.parser")
-filtered_exercises = soup_page_exercise.find_all(tag_filter)
 
-# %%
+if __name__ == "__main__":
+    asyncio.run(main())
