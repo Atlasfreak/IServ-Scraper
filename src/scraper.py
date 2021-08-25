@@ -1,4 +1,3 @@
-# %%
 import asyncio
 import getpass
 import os
@@ -20,7 +19,6 @@ from sanitize_filename import sanitize
 import utils
 
 
-# %%
 class Scraper:
     ONLY_TABLE = SoupStrainer("table")
     ONLY_MAIN_CONTENT = SoupStrainer("div", {"class": "page-content inset"})
@@ -424,7 +422,6 @@ class Scraper:
         await self.client.aclose()
 
 
-# %%
 async def main():
     scraper = await Scraper()
     try:
@@ -434,8 +431,6 @@ async def main():
     finally:
         await scraper.close()
 
-
-# %%
 
 if __name__ == "__main__":
     asyncio.run(main())

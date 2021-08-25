@@ -8,12 +8,18 @@ FIELDNAMES = [
     "Startdatum",
     "Enddatum",
     "Link",
+    "Tags",
     "Beschreibung",
-    "Abgabe",
+    "Bereitgestellte Dateien",
+    "Abgabetext",
+    "Abgabedateien",
+    "Rückmeldungstext",
+    "Rückmeldungsdateien",
 ]
 
 
-def create_csv(file: BinaryIO, data: list[dict], fieldnames: list):
+def create_csv(file: BinaryIO, data: list[dict], fieldnames: list = None):
+    fieldnames = fieldnames if fieldnames is not None else FIELDNAMES
     writer = csv.DictWriter(file, fieldnames)
     writer.writeheader()
     writer.writerows(data)
