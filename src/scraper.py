@@ -4,9 +4,7 @@ import os
 import secrets
 import shutil
 import tempfile
-import time
 import urllib.parse
-from asyncio.tasks import create_task
 from datetime import datetime
 from pathlib import Path
 from typing import Coroutine, Iterable
@@ -316,11 +314,18 @@ class Scraper:
             url (str): url to download file from
             path (Path): directory to put file in
         """
+        failed = False
         with open(path, "wb") as f:
-            async with self.client.stream("GET", url) as response:
-                async for chunk in response.aiter_bytes():
-                    if chunk:
-                        f.write(chunk)
+            try:
+                async with self.client.stream("GET", url) as response:
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            f.write(chunk)
+            except httpx.TimeoutException as error:
+                print("\nDatei konnte nicht heruntergeladen werden:", self.url + url)
+                failed = True
+        if failed:
+            path.unlink()
 
     async def schedule_downloads(
         self, tasks: list[Coroutine], exercise_data: dict, key: str, dir: Path
@@ -398,13 +403,15 @@ class Scraper:
         """
         print("\nDateien werden zusammengestellt...")
         with tempfile.TemporaryDirectory() as temp_dir:
-            exercises_dir = Path(temp_dir) / "Aufgaben"
+            temp_path = Path(temp_dir)
+            exercises_dir = temp_path / "Aufgaben"
             exercises_dir = await self._create_dir(exercises_dir)
             tasks = [self.get_exercise_files(e_data, exercises_dir) for e_data in data]
             final_data = await asyncio.gather(*tasks)
-            shutil.make_archive("exercises", "zip", temp_dir)
-
-        return final_data
+            with open(temp_path / "daten.csv", "w", encoding="utf-8", newline="") as f:
+                utils.create_csv(f, final_data)
+            zipfile_name = f"{datetime.now().strftime('%Y%m%d_%H%M')}_Aufgaben"
+            shutil.make_archive(zipfile_name, "zip", temp_dir)
 
     async def run(self):
         """
@@ -419,8 +426,7 @@ class Scraper:
         tasks = [self.get_exercise_data(exercise) for exercise in filtered_exercises]
         print("Aufgaben Daten werden gesammelt...")
         data = await asyncio.gather(*tasks)
-        data = await self.get_all_files(data)
-        return data
+        await self.get_all_files(data)
 
     async def close(self):
         """
@@ -434,9 +440,7 @@ class Scraper:
 async def main():
     scraper = await Scraper()
     try:
-        data = await scraper.run()
-        with open("data.csv", "w", encoding="utf-8", newline="") as f:
-            utils.create_csv(f, data)
+        await scraper.run()
     finally:
         await scraper.close()
 
