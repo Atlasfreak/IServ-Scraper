@@ -1,14 +1,24 @@
 # %%
 import asyncio
-from asyncio.tasks import create_task
 import getpass
+import os
+import secrets
+import shutil
+import tempfile
+import time
+import urllib.parse
+from asyncio.tasks import create_task
 from datetime import datetime
+from pathlib import Path
+from typing import Coroutine, Iterable
 
 import httpx
 from bs4 import BeautifulSoup
 from bs4.element import SoupStrainer, Tag
+from sanitize_filename import sanitize
 
 import utils
+
 
 # %%
 class Scraper:
@@ -217,9 +227,21 @@ class Scraper:
             .find_next_sibling("div")
             .contents
         )
+        exercise_provided_files = []
+        exercise_provided_files_parent = soup_page.find(
+            "form", attrs={"name": "iserv_exercise_attachment"}
+        )
+        if exercise_provided_files_parent:
+            exercise_provided_files = list(
+                map(
+                    lambda tag: tag["href"],
+                    exercise_provided_files_parent.select("tr td a"),
+                )
+            )
         data = {
             "Lehrer": exercise_creator,
             "Beschreibung": exercise_description,
+            "Bereitgestellte Dateien": exercise_provided_files,
         }
         return data
 
@@ -238,15 +260,17 @@ class Scraper:
             exercise_page.text, "html.parser", parse_only=self.ONLY_MAIN_CONTENT
         )
 
-        data = await self.extract_main_info(soup_exercise_page)
+        # Extract all data
+        data_list = await asyncio.gather(
+            self.extract_main_info(soup_exercise_page),
+            self.extract_feedback(soup_exercise_page),
+            self.extract_submission(soup_exercise_page),
+        )
+        data = {}
+        for d in data_list:
+            data.update(d)
 
-        # Get feedback data
-        feedback_data = await self.extract_feedback(soup_exercise_page)
-
-        # Get submission data
-        submission_data = await self.extract_submission(soup_exercise_page)
-
-        return {**data, **submission_data, **feedback_data}
+        return data
 
     async def get_exercise_data(self, tag: Tag) -> dict:
         """
@@ -277,6 +301,106 @@ class Scraper:
         exercise_data.update(parsed_data)
         return exercise_data
 
+    async def _create_dir(self, path: Path):
+        try:
+            path.mkdir(parents=True)
+        except FileExistsError:
+            path = path / secrets.token_urlsafe(4)
+            path.mkdir(parents=True)
+        return path
+
+    async def get_file(self, url: str, path: Path):
+        """
+        get_file download a file
+
+        Args:
+            url (str): url to download file from
+            path (Path): directory to put file in
+        """
+        with open(path, "wb") as f:
+            async with self.client.stream("GET", url) as response:
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        f.write(chunk)
+
+    async def schedule_downloads(
+        self, tasks: list[Coroutine], exercise_data: dict, key: str, dir: Path
+    ):
+        """
+        schedule_downloads schedule downloads for all provided urls
+
+        Args:
+            tasks (list[Coroutine]): the list of tasks to add to
+            exercise_data (dict): the data for the exercise
+            key (str): the key for the urls
+            dir (Path): the directory to put the files in
+
+        Returns:
+            list[Coroutine]: list of tasks to be executed
+            dict: adjusted data
+        """
+        urls: list[str] = exercise_data[key]
+        if urls:
+            url_dir = dir / key
+            url_dir = await self._create_dir(url_dir)
+            exercise_data[key] = ""
+            for url in urls:
+                filename = sanitize(os.path.basename(urllib.parse.unquote(url)))
+                filepath = url_dir / filename
+                tasks.append(self.get_file(url, filepath))
+                exercise_data[key] += f"{filename}, "
+        else:
+            exercise_data[key] = f"Keine {key}"
+        return tasks, exercise_data
+
+    async def get_exercise_files(self, exercise_data: dict, dir: Path):
+        """
+        get_exercise_files collects all files for an exercise
+
+        Args:
+            exercise_data (dict): the collected data for that exercise
+            dir (Path): the directory to put the files into
+
+        Returns:
+            dict: the adjusted data
+        """
+        exercise_dir = dir / sanitize(exercise_data["Aufgabe"])
+        exercise_dir = await self._create_dir(exercise_dir)
+        tasks = []
+
+        tasks, exercise_data = await self.schedule_downloads(
+            tasks, exercise_data, "Rückmeldungsdateien", exercise_dir
+        )
+        tasks, exercise_data = await self.schedule_downloads(
+            tasks, exercise_data, "Abgabedateien", exercise_dir
+        )
+        tasks, exercise_data = await self.schedule_downloads(
+            tasks, exercise_data, "Bereitgestellte Dateien", exercise_dir
+        )
+
+        await asyncio.gather(*tasks)
+
+        return exercise_data
+
+    async def get_all_files(self, data: Iterable[dict]):
+        """
+        get_all_files iterates over all collected data to retrivie all files and collect them in a zip file
+
+        Args:
+            data (Iterable[dict]): the collected data
+
+        Returns:
+            Tuple[dict]: final processed data
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exercises_dir = Path(temp_dir) / "Aufgaben"
+            exercises_dir = await self._create_dir(exercises_dir)
+            tasks = [self.get_exercise_files(e_data, exercises_dir) for e_data in data]
+            final_data = await asyncio.gather(*tasks)
+            shutil.make_archive("exercises", "zip", temp_dir)
+
+        return final_data
+
     async def run(self):
         """
         Run the scraper and return the data.
@@ -289,6 +413,7 @@ class Scraper:
         filtered_exercises = soup_page_exercises.find_all(self.tag_filter)
         tasks = [self.get_exercise_data(exercise) for exercise in filtered_exercises]
         data = await asyncio.gather(*tasks)
+        data = await self.get_all_files(data)
         return data
 
     async def close(self):
