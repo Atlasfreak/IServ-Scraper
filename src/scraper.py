@@ -40,6 +40,7 @@ class Scraper:
         url: str = None,
         username: str = None,
         password: str = None,
+        filters: Iterable[str] = None,
     ) -> None:
         self.url = url if url is not None else "https://whg-duew.de"
         self.client = (
@@ -49,10 +50,19 @@ class Scraper:
                 base_url=self.url, headers={"user-agent": "IServ-exercise-scraper/1.0"}
             )
         )
+        self.username = username
+        self.password = password
+        self.filters = filters
+
+    async def prompt_login(self):
         logged_in = False
         while not logged_in:
-            self.username = username if username is not None else input("Username: ")
-            self.password = password if password is not None else getpass.getpass()
+            self.username = (
+                self.username if self.username is not None else input("Username: ")
+            )
+            self.password = (
+                self.password if self.password is not None else getpass.getpass()
+            )
             logged_in = await self.login()
             if not logged_in:
                 print("Passwort oder Benutzername flasch.")
@@ -84,7 +94,7 @@ class Scraper:
         return (
             tag.name == "a"
             and self.href_filter(tag["href"])
-            and "AG 3D-Druck" not in tag.string
+            and any(ele not in tag.string for ele in self.filters)
         )
 
     async def change_language(self):
@@ -306,7 +316,7 @@ class Scraper:
             path.mkdir(parents=True)
         return path
 
-    async def get_file(self, url: str, path: Path):
+    async def get_file(self, url: str, path: Path, iteration=0):
         """
         get_file download a file
 
@@ -326,6 +336,8 @@ class Scraper:
                 failed = True
         if failed:
             path.unlink()
+            if iteration < 10:
+                return self.get_file(url, path, iteration + 1)
 
     async def schedule_downloads(
         self, tasks: list[Coroutine], exercise_data: dict, key: str, dir: Path
@@ -384,7 +396,12 @@ class Scraper:
             tasks, exercise_data, "Bereitgestellte Dateien", exercise_dir
         )
 
-        await asyncio.gather(*tasks)
+        new_tasks = []
+
+        while tasks:
+            new_tasks = await asyncio.gather(*tasks)
+            if new_tasks:
+                tasks = list(filter(None, new_tasks))
 
         if not (feedback_success or submission_success or provided_success):
             exercise_dir.rmdir()
@@ -410,7 +427,9 @@ class Scraper:
             final_data = await asyncio.gather(*tasks)
             with open(temp_path / "daten.csv", "w", encoding="utf-8", newline="") as f:
                 utils.create_csv(f, final_data)
-            zipfile_name = f"{datetime.now().strftime('%Y%m%d_%H%M')}_Aufgaben"
+            zipfile_name = (
+                f"{datetime.now().strftime('%Y%m%d_%H%M')}_Aufgaben_{self.username}"
+            )
             shutil.make_archive(zipfile_name, "zip", temp_dir)
 
     async def run(self):
