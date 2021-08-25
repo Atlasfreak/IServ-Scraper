@@ -458,9 +458,8 @@ class Scraper:
 
 
 async def main():
-    with open("filters.cfg") as f:
-        filters = f.readlines()
-
+    with open("filters.cfg", encoding="utf-8") as f:
+        filters = [line.rstrip() for line in f]
     scraper = await Scraper(filters=filters)
     try:
         await scraper.run()
