@@ -297,6 +297,7 @@ class Scraper:
 
         parsed_data = await parse_task
         exercise_data.update(parsed_data)
+        print(".", end="")
         return exercise_data
 
     async def _create_dir(self, path: Path):
@@ -338,6 +339,7 @@ class Scraper:
             dict: adjusted data
         """
         urls: list[str] = exercise_data[key]
+        added_files = False
         if urls:
             url_dir = dir / key
             url_dir = await self._create_dir(url_dir)
@@ -347,9 +349,10 @@ class Scraper:
                 filepath = url_dir / filename
                 tasks.append(self.get_file(url, filepath))
                 exercise_data[key] += f"{filename}, "
+            added_files = True
         else:
             exercise_data[key] = f"Keine {key}"
-        return tasks, exercise_data
+        return tasks, exercise_data, added_files
 
     async def get_exercise_files(self, exercise_data: dict, dir: Path):
         """
@@ -366,18 +369,21 @@ class Scraper:
         exercise_dir = await self._create_dir(exercise_dir)
         tasks = []
 
-        tasks, exercise_data = await self.schedule_downloads(
+        tasks, exercise_data, feedback_success = await self.schedule_downloads(
             tasks, exercise_data, "Rückmeldungsdateien", exercise_dir
         )
-        tasks, exercise_data = await self.schedule_downloads(
+        tasks, exercise_data, submission_success = await self.schedule_downloads(
             tasks, exercise_data, "Abgabedateien", exercise_dir
         )
-        tasks, exercise_data = await self.schedule_downloads(
+        tasks, exercise_data, provided_success = await self.schedule_downloads(
             tasks, exercise_data, "Bereitgestellte Dateien", exercise_dir
         )
 
         await asyncio.gather(*tasks)
 
+        if not (feedback_success or submission_success or provided_success):
+            exercise_dir.rmdir()
+        print(".", end="")
         return exercise_data
 
     async def get_all_files(self, data: Iterable[dict]):
@@ -390,6 +396,7 @@ class Scraper:
         Returns:
             Tuple[dict]: final processed data
         """
+        print("\nDateien werden zusammengestellt...")
         with tempfile.TemporaryDirectory() as temp_dir:
             exercises_dir = Path(temp_dir) / "Aufgaben"
             exercises_dir = await self._create_dir(exercises_dir)
@@ -410,6 +417,7 @@ class Scraper:
         )
         filtered_exercises = soup_page_exercises.find_all(self.tag_filter)
         tasks = [self.get_exercise_data(exercise) for exercise in filtered_exercises]
+        print("Aufgaben Daten werden gesammelt...")
         data = await asyncio.gather(*tasks)
         data = await self.get_all_files(data)
         return data
@@ -420,6 +428,7 @@ class Scraper:
         """
         await self.reset_language()
         await self.client.aclose()
+        print("\nFertig.")
 
 
 async def main():
