@@ -468,7 +468,9 @@ class Scraper:
 
 
 async def main():
-    with open("filters.cfg", encoding="utf-8") as f:
+    filter_config = "filters.cfg"
+    mode = "r" if os.path.exists(filter_config) else "w"
+    with open(filter_config, encoding="utf-8", mode=mode) as f:
         filters = [line.rstrip() for line in f]
     scraper = await Scraper(filters=filters)
     try:
