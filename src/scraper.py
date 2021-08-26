@@ -42,6 +42,16 @@ class Scraper:
         password: str = None,
         filters: Iterable[str] = None,
     ) -> None:
+        """
+        _scraper_init initialize Scraper
+
+        Args:
+            client (httpx.AsyncClient, optional): a custom client. Defaults to None.
+            url (str, optional): a different url to a IServ instance. Defaults to None.
+            username (str, optional): username. Defaults to None.
+            password (str, optional): password. Defaults to None.
+            filters (Iterable[str], optional): list of filters to exclude exercises. Defaults to None.
+        """
         self.url = url if url is not None else "https://whg-duew.de"
         self.client = (
             client
@@ -55,6 +65,10 @@ class Scraper:
         self.filters = filters if filters is not None else []
 
     async def prompt_login(self):
+        """
+        prompt_login prompt the user to login in,
+            also makes sure that username and password are correct.
+        """
         logged_in = False
         self.username = (
             self.username if self.username is not None else input("Username: ")
@@ -65,7 +79,7 @@ class Scraper:
         while not logged_in:
             logged_in = await self.login()
             if not logged_in:
-                print("Passwort oder Benutzername flasch.")
+                print("Passwort oder Benutzername falsch.")
                 self.username, self.password = input("Username: "), getpass.getpass()
 
         print("Erfolgreich eingeloggt!")
@@ -74,9 +88,9 @@ class Scraper:
         """
         Log the user in.
         Returns:
-            True if login succesful
+            True if login successful
             False if login failed
-        Raises ConnectionError when some error occured
+        Raises ConnectionError when some error occurred
         """
         login_path = "/iserv/app/login"
         login_info = {"_username": self.username, "_password": self.password}
@@ -109,7 +123,7 @@ class Scraper:
 
     async def change_language(self):
         """
-        Change language of user to german to guarantee correct parsing.
+        Change language of user to German to guarantee correct parsing.
         """
         settings_page = await self.client.get("/iserv/profile/settings")
         soup_settings_page = BeautifulSoup(
@@ -420,7 +434,7 @@ class Scraper:
 
     async def get_all_files(self, data: Iterable[dict]):
         """
-        get_all_files iterates over all collected data to retrivie all files and collect them in a zip file
+        get_all_files iterates over all collected data to retrieve all files and collect them in a zip file
 
         Args:
             data (Iterable[dict]): the collected data
