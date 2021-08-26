@@ -1,12 +1,15 @@
-# IServ Scraper
-
+# IServ Scraper <!-- omit in toc -->
+Dieses Script lädt alle ihre Aufgaben von IServ, inklusive zugehörige Dateien,
+herunter und stellt sie in einer Zip-Datei zusammen.
 # Inhaltsübersicht
-- [IServ Scraper](#iserv-scraper)
 - [Inhaltsübersicht](#inhaltsübersicht)
 - [Voraussetzungen](#voraussetzungen)
 - [Script ausführen](#script-ausführen)
-  - [Ohne Python Kenntnisse](#ohne-python-kenntnisse)
+  - [Ohne Python Kenntnisse und generelle Anleitung](#ohne-python-kenntnisse-und-generelle-anleitung)
   - [Mit Python Kenntnissen (Mehr als Informatikunterricht)](#mit-python-kenntnissen-mehr-als-informatikunterricht)
+- [Hinweise](#hinweise)
+  - [Zip-Datei](#zip-datei)
+  - [daten.csv](#datencsv)
 - [Konfiguration](#konfiguration)
   - [Filter einstellen](#filter-einstellen)
   - [Fortgeschritten](#fortgeschritten)
@@ -24,9 +27,9 @@
 **Zugangsdaten (Passwörter und Benutzernamen) ausschließlich an vertraute Personen weitergeben!**
 
 ---
-## Ohne Python Kenntnisse
+## Ohne Python Kenntnisse und generelle Anleitung
 [Python von python.org herunterladen](https://www.python.org/downloads/) und installieren,
-**bei der Installation darauf achten den Haken bei `ADD Python to PATH` zu setzen!**
+**bei der Installation darauf achten den Haken bei `ADD Python to PATH` zu setzen!**
 
 Einfach die run.bat Datei ausführen.
 
@@ -38,11 +41,37 @@ Nicht wundern es hat einen `.venv` Ordner erstellt, dieser beinhaltet alle für 
 
 ---
 ## Mit Python Kenntnissen (Mehr als Informatikunterricht)
+Ich setzte voraus das Python installiert ist.
+
 Optimalerweise ein Virtualenviroment anlegen. (`python -m venv .venv`), das dann auch aktivieren.
 
 Dependencies installieren `pip install -r requirements.txt`
 
 Script ausführen `python src/scraper.py`
+
+# Hinweise
+## Zip-Datei
+Die Zip-Datei wird nachdem Schema: `JahrMonatTag_StundeMinute_Aufgaben_Benutzername.zip` benannt.
+In ihr ist ein Ordner `Aufgaben` dieser enthält für jede Aufgabe, bei der Dateien gefunden wurden,
+einen Ordner mit dem Namen der Aufgabe.
+
+Des Weiteren enthält die Zip-Datei die `daten.csv` Datei,
+welche alle weiteren Daten zu den Aufgaben enthält.
+
+## daten.csv
+Sämtliche Texte werden mit HTML Tags heruntergeladen und so in der CSV-Datei gespeichert,
+da vor allem die Beschreibungen teilweise sehr lang sind kann dies recht unübersichtlich sein.
+Um diese annähernd wie auf IServ darzustellen müssen diese in eine separate HTML Datei kopiert werden.
+
+**Die Darstellung wird nicht dieselbe wie auf IServ sein!**
+
+Eventuell werden diese zukünftig als HTML-Datei in der Zip-Datei zur Verfügung gestellt.
+
+---
+
+In Excel kann man CSV-Dateien unter dem Reiter `Daten` importieren,
+hierbei muss darauf geachtet werden die **Formatierung (bzw. den Dateiursprung) auf UTF-8 umzustellen!**
+Excel (zumindest neure Versionen) erkennt automatisch die Datentypen der einzelnen Spalten und kann diese daher korrekt sortieren.
 
 # Konfiguration
 ## Filter einstellen
@@ -60,13 +89,13 @@ WHG-Online Team
 Sozialkunde
 Mathe
 ```
-In diesem Fall würden alle Aufgaben, deren Name "WHG-Online Team", "Sozialkunde" oder "Mathe" enthält,
+In diesem Fall würden alle Aufgaben, deren Name `WHG-Online Team`, `Sozialkunde` oder `Mathe` enthält,
 ignoriert und dem entsprechend nicht verarbeitet.
 
-- `"WHG-Online Team: Treffen"` würde ignoriert
-- `"Sozialkunde Hausaufgaben"` würde ignoriert
-- `"whg-online team: treffen"` würde **nicht** ignoriert, da Groß-/Kleinschreibung beachtet wird
-- `"Deutsch Hausaufgaben"` würde nicht ignoriert, da der Name keinen der Filter enthält
+- `WHG-Online Team: Treffen` würde ignoriert
+- `Sozialkunde Hausaufgaben` würde ignoriert
+- `whg-online team: treffen` würde **nicht** ignoriert, da Groß-/Kleinschreibung beachtet wird
+- `Deutsch Hausaufgaben` würde nicht ignoriert, da der Name keinen der Filter enthält
 
 ---
 ## Fortgeschritten
