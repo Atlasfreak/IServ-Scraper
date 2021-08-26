@@ -52,20 +52,22 @@ class Scraper:
         )
         self.username = username
         self.password = password
-        self.filters = filters
+        self.filters = filters if filters is not None else []
 
     async def prompt_login(self):
         logged_in = False
+        self.username = (
+            self.username if self.username is not None else input("Username: ")
+        )
+        self.password = (
+            self.password if self.password is not None else getpass.getpass()
+        )
         while not logged_in:
-            self.username = (
-                self.username if self.username is not None else input("Username: ")
-            )
-            self.password = (
-                self.password if self.password is not None else getpass.getpass()
-            )
             logged_in = await self.login()
             if not logged_in:
                 print("Passwort oder Benutzername flasch.")
+                self.username, self.password = input("Username: "), getpass.getpass()
+
         print("Erfolgreich eingeloggt!")
 
     async def login(self) -> bool:
@@ -78,7 +80,14 @@ class Scraper:
         """
         login_path = "/iserv/app/login"
         login_info = {"_username": self.username, "_password": self.password}
-        page_login = await self.client.post(login_path, data=login_info)
+        page_login = None
+        while page_login is None:
+            try:
+                page_login = await self.client.post(login_path, data=login_info)
+            except httpx.TimeoutException as e:
+                print("Zeitüberschreitung während des Logins. Versuche es erneut...")
+                continue
+
         if page_login.url.path.startswith(login_path):
             return False
         elif page_login.status_code != 200 and page_login.status_code != 302:
@@ -91,11 +100,12 @@ class Scraper:
         return href.startswith(self.url + "/iserv/exercise/show/")
 
     def tag_filter(self, tag: Tag) -> bool:
-        return (
-            tag.name == "a"
-            and self.href_filter(tag["href"])
-            and any(ele not in tag.string for ele in self.filters)
-        )
+        filters_result = True
+        if self.filters:
+            filters_result = any(
+                ele not in tag.string for ele in self.filters if self.filters
+            )
+        return tag.name == "a" and self.href_filter(tag["href"]) and filters_result
 
     async def change_language(self):
         """
