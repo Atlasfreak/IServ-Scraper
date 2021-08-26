@@ -100,12 +100,12 @@ class Scraper:
         return href.startswith(self.url + "/iserv/exercise/show/")
 
     def tag_filter(self, tag: Tag) -> bool:
+        if tag.name != "a":
+            return False
         filters_result = True
-        if self.filters:
-            filters_result = any(
-                ele not in tag.string for ele in self.filters if self.filters
-            )
-        return tag.name == "a" and self.href_filter(tag["href"]) and filters_result
+        if tag.string and self.filters:
+            filters_result = not any(ele in tag.string for ele in self.filters)
+        return self.href_filter(tag["href"]) and filters_result
 
     async def change_language(self):
         """
