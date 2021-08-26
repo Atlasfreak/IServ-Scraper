@@ -146,8 +146,8 @@ class Scraper:
     async def reset_language(self):
         await self.client.post("/iserv/profile/settings", data=self.original_settings)
 
-    def convert_list_to_str(self, list: list):
-        return "".join(map(str, list)).strip().strip("\n")
+    def convert_list_to_str(self, lst: list):
+        return "".join(map(str, lst)).strip().strip("\n")
 
     async def extract_feedback(self, soup_page: BeautifulSoup):
         """
@@ -212,6 +212,9 @@ class Scraper:
                 submission_text_parent.find_next_sibling(
                     "div", class_="text-break-word"
                 ).contents
+            )
+            submission_text = (
+                submission_text if submission_text else "Kein Text abgegeben"
             )
         else:
             submission_text = "Kein Text abgegeben"
