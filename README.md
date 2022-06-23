@@ -1,3 +1,5 @@
+# Wird nicht mehr weiterentwickelt und ist auf neuen IServ versionen nicht funktionsfähig!
+
 # IServ Scraper <!-- omit in toc -->
 Dieses Script lädt alle ihre Aufgaben von IServ, inklusive zugehörige Dateien,
 herunter und stellt sie in einer Zip-Datei zusammen.
