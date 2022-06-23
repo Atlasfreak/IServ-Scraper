@@ -1,4 +1,4 @@
-# Wird nicht mehr weiterentwickelt und ist auf neuen IServ versionen nicht funktionsfähig!
+# Wird nicht mehr weiterentwickelt und ist auf neuen IServversionen nicht funktionsfähig!
 
 # IServ Scraper <!-- omit in toc -->
 Dieses Script lädt alle ihre Aufgaben von IServ, inklusive zugehörige Dateien,
